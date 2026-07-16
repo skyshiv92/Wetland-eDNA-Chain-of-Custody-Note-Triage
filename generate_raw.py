@@ -43,14 +43,14 @@ LAB_WINDOWS = ["same_day", "overnight_hold", "weekend_receipt", "field_freezer_d
 FIELD_TEAMS = ["delta", "fir", "heron", "lichen", "moraine", "sedge", "willow"]
 
 ISSUE_WEIGHTS = {
-    "temp_excursion": {"QUARANTINE_COLD_CHAIN": 3.2, "HOLD_REPORT": 2.0, "ESCALATE_SUPERVISOR": 1.1, "RECOLLECT_SAMPLE": 0.7},
-    "custody_gap": {"CLARIFY_CUSTODY": 3.1, "HOLD_REPORT": 1.8, "ESCALATE_SUPERVISOR": 0.8, "RECOLLECT_SAMPLE": 0.5},
-    "blank_contamination": {"REVIEW_BLANKS": 3.2, "REJECT_CONTAMINATION": 2.4, "HOLD_REPORT": 1.4, "ESCALATE_SUPERVISOR": 0.8},
-    "inhibition": {"CLEANUP_INHIBITORS": 3.1, "DILUTE_EXTRACT": 2.3, "RERUN_PCR": 1.4, "HOLD_REPORT": 0.6},
-    "replicate_discordance": {"RERUN_PCR": 3.0, "HOLD_REPORT": 1.6, "REPEAT_TAXON_PANEL": 1.0, "ESCALATE_SUPERVISOR": 0.5},
-    "panel_mismatch": {"REPEAT_TAXON_PANEL": 3.0, "CLARIFY_CUSTODY": 1.7, "HOLD_REPORT": 1.4, "ESCALATE_SUPERVISOR": 0.7},
-    "preservation_failure": {"RECOLLECT_SAMPLE": 3.1, "HOLD_REPORT": 1.9, "CLARIFY_CUSTODY": 0.9, "QUARANTINE_COLD_CHAIN": 0.7},
-    "weather_dilution": {"RERUN_PCR": 2.1, "RECOLLECT_SAMPLE": 1.8, "HOLD_REPORT": 1.2, "ACCEPT_REPORT": 0.7},
+    "temp_excursion": {"QUARANTINE_COLD_CHAIN": 3.2, "ESCALATE_SUPERVISOR": 1.1, "RECOLLECT_SAMPLE": 0.9, "HOLD_REPORT": 0.45},
+    "custody_gap": {"CLARIFY_CUSTODY": 3.1, "ESCALATE_SUPERVISOR": 0.95, "RECOLLECT_SAMPLE": 0.75, "HOLD_REPORT": 0.45},
+    "blank_contamination": {"REVIEW_BLANKS": 3.2, "REJECT_CONTAMINATION": 2.55, "ESCALATE_SUPERVISOR": 0.95, "HOLD_REPORT": 0.35},
+    "inhibition": {"CLEANUP_INHIBITORS": 3.1, "DILUTE_EXTRACT": 2.45, "RERUN_PCR": 1.55},
+    "replicate_discordance": {"RERUN_PCR": 3.0, "REPEAT_TAXON_PANEL": 1.25, "ESCALATE_SUPERVISOR": 0.85, "HOLD_REPORT": 0.25},
+    "panel_mismatch": {"REPEAT_TAXON_PANEL": 3.0, "CLARIFY_CUSTODY": 1.85, "ESCALATE_SUPERVISOR": 0.95, "HOLD_REPORT": 0.25},
+    "preservation_failure": {"RECOLLECT_SAMPLE": 3.1, "CLARIFY_CUSTODY": 1.05, "QUARANTINE_COLD_CHAIN": 0.9, "HOLD_REPORT": 0.45},
+    "weather_dilution": {"RERUN_PCR": 2.25, "RECOLLECT_SAMPLE": 2.0, "ACCEPT_REPORT": 0.8, "DILUTE_EXTRACT": 0.45},
 }
 
 TRAIN_PHRASES = {
@@ -157,10 +157,10 @@ def _context_weights(row: dict) -> dict[str, float]:
         weights["DILUTE_EXTRACT"] += 0.25
     if row["project_region"] in {"coastal_marsh", "peat_wetland"}:
         weights["DILUTE_EXTRACT"] += 0.2
-        weights["HOLD_REPORT"] += 0.15
+        weights["REVIEW_BLANKS"] += 0.08
     if row["assay_panel"] in {"amphibian_pathogen", "salmonid_spawning"}:
         weights["RECOLLECT_SAMPLE"] += 0.25
-        weights["HOLD_REPORT"] += 0.2
+        weights["RERUN_PCR"] += 0.08
     if row["collection_context"] in {"storm_pulse", "thaw_window"}:
         weights["RERUN_PCR"] += 0.25
         weights["RECOLLECT_SAMPLE"] += 0.2
@@ -172,6 +172,7 @@ def _context_weights(row: dict) -> dict[str, float]:
 
 def _rank_actions(row: dict, primary: str, secondary: str | None, difficulty: str) -> tuple[str, dict[str, float]]:
     scores = {action: 0.0 for action in ACTIONS}
+    hold_sensitive = {"temp_excursion", "custody_gap", "blank_contamination", "preservation_failure"}
     for action, value in _context_weights(row).items():
         scores[action] += value
     for action, value in ISSUE_WEIGHTS[primary].items():
@@ -179,9 +180,16 @@ def _rank_actions(row: dict, primary: str, secondary: str | None, difficulty: st
     if secondary:
         for action, value in ISSUE_WEIGHTS[secondary].items():
             scores[action] += 0.68 * value
+    if primary in hold_sensitive:
+        scores["HOLD_REPORT"] += 0.85
+    if secondary in hold_sensitive:
+        scores["HOLD_REPORT"] += 0.45
+    if row["lab_window"] in {"weekend_receipt", "field_freezer_delay"}:
+        scores["HOLD_REPORT"] += 0.25
     if difficulty == "hard":
-        scores["HOLD_REPORT"] += 0.35
-        scores["ESCALATE_SUPERVISOR"] += 0.22
+        scores["ESCALATE_SUPERVISOR"] += 0.35
+        if primary in hold_sensitive:
+            scores["HOLD_REPORT"] += 0.25
     if difficulty == "easy" and primary not in {"blank_contamination", "preservation_failure"}:
         scores["ACCEPT_REPORT"] += 0.12
 
